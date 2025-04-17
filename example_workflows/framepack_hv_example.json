@@ -303,7 +303,7 @@
         "Node name for S&R": "VHS_VideoCombine"
       },
       "widgets_values": {
-        "frame_rate": 24,
+        "frame_rate": 30,
         "loop_count": 0,
         "filename_prefix": "FramePack",
         "format": "video/h264-mp4",
