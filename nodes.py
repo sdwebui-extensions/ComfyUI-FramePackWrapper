@@ -244,7 +244,7 @@ class FramePackFindNearestBucket:
     def INPUT_TYPES(s):
         return {"required": {
             "image": ("IMAGE", {"tooltip": "Image to resize"}),
-            "base_resolution": ("INT", {"default": 640, "min": 64, "max": 2048, "step": 8, "tooltip": "Width of the image to encode"}),
+            "base_resolution": ("INT", {"default": 640, "min": 64, "max": 2048, "step": 16, "tooltip": "Width of the image to encode"}),
             },
         }
 
