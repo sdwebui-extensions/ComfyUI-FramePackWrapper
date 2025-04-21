@@ -6,8 +6,6 @@ import numpy as np
 import math
 from tqdm import tqdm
 
-from accelerate import init_empty_weights
-from accelerate.utils import set_module_tensor_to_device
 
 import folder_paths
 import comfy.model_management as mm
@@ -19,11 +17,6 @@ from comfy.cli_args import args, LatentPreviewMethod
 script_directory = os.path.dirname(os.path.abspath(__file__))
 vae_scaling_factor = 0.476986
 
-from .diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
-from .diffusers_helper.memory import DynamicSwapInstaller, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation
-from .diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
-from .diffusers_helper.utils import crop_or_pad_yield_mask
-from .diffusers_helper.bucket_tools import find_nearest_bucket
 
 class HyVideoModel(comfy.model_base.BaseModel):
     def __init__(self, *args, **kwargs):
@@ -113,18 +106,24 @@ class DownloadAndLoadFramePackModel:
                   compile_args=None, attention_mode="sdpa"):
         
         base_dtype = {"fp8_e4m3fn": torch.float8_e4m3fn, "fp8_e4m3fn_fast": torch.float8_e4m3fn, "bf16": torch.bfloat16, "fp16": torch.float16, "fp16_fast": torch.float16, "fp32": torch.float32}[base_precision]
+        from .diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+        from .diffusers_helper.memory import DynamicSwapInstaller
 
         device = mm.get_torch_device()
         
         model_path = os.path.join(folder_paths.models_dir, "diffusers", "lllyasviel", "FramePackI2V_HY")
+        cache_model_path = os.path.join(folder_paths.cache_dir, "diffusers", "lllyasviel", "FramePackI2V_HY")
         if not os.path.exists(model_path):
-            print(f"Downloading clip model to: {model_path}")
-            from huggingface_hub import snapshot_download
-            snapshot_download(
-                repo_id=model,
-                local_dir=model_path,
-                local_dir_use_symlinks=False,
-            )
+            if os.path.exists(cache_model_path):
+                model_path = cache_model_path
+            else:
+                print(f"Downloading clip model to: {model_path}")
+                from huggingface_hub import snapshot_download
+                snapshot_download(
+                    repo_id=model,
+                    local_dir=model_path,
+                    local_dir_use_symlinks=False,
+                )
 
         transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(model_path, torch_dtype=base_dtype, attention_mode=attention_mode).cpu()
         params_to_keep = {"norm", "bias", "time_in", "vector_in", "guidance_in", "txt_in", "img_in"}
@@ -185,6 +184,10 @@ class LoadFramePackModel:
                   compile_args=None, attention_mode="sdpa"):
         
         base_dtype = {"fp8_e4m3fn": torch.float8_e4m3fn, "fp8_e4m3fn_fast": torch.float8_e4m3fn, "bf16": torch.bfloat16, "fp16": torch.float16, "fp16_fast": torch.float16, "fp32": torch.float32}[base_precision]
+        from .diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+        from .diffusers_helper.memory import DynamicSwapInstaller
+        from accelerate import init_empty_weights
+        from accelerate.utils import set_module_tensor_to_device
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
@@ -257,6 +260,7 @@ class FramePackFindNearestBucket:
     def process(self, image, base_resolution):
 
         H, W = image.shape[1], image.shape[2]
+        from .diffusers_helper.bucket_tools import find_nearest_bucket
 
         new_height, new_width = find_nearest_bucket(H, W, resolution=base_resolution)
 
@@ -304,6 +308,9 @@ class FramePackSampler:
         total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
         total_latent_sections = int(max(round(total_latent_sections), 1))
         print("total_latent_sections: ", total_latent_sections)
+        from .diffusers_helper.memory import move_model_to_device_with_memory_preservation
+        from .diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
+        from .diffusers_helper.utils import crop_or_pad_yield_mask
 
         transformer = model["transformer"]
         base_dtype = model["dtype"]
