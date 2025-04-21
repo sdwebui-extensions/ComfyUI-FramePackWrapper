@@ -291,6 +291,8 @@ class FramePackSampler:
                 "start_latent": ("LATENT", {"tooltip": "init Latents to use for image2video"} ),
                 "end_latent": ("LATENT", {"tooltip": "end Latents to use for image2video"} ),
                 "end_image_embeds": ("CLIP_VISION_OUTPUT", {"tooltip": "end Image's clip embeds"} ),
+                "embed_interpolation": (["weighted_average", "linear"], {"default": 'linear', "tooltip": "Image embedding interpolation type. If linear, will smoothly interpolate with time, else it'll be weighted average with the specified weight."}),
+                "start_embed_strength": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Weighted average constant for image embed interpolation. If end image is not set, the embed's strength won't be affected"}),
                 "initial_samples": ("LATENT", {"tooltip": "init Latents to use for video2video"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
@@ -302,7 +304,7 @@ class FramePackSampler:
     CATEGORY = "FramePackWrapper"
 
     def process(self, model, shift, positive, negative, latent_window_size, use_teacache, total_second_length, teacache_rel_l1_thresh, image_embeds, steps, cfg,
-                guidance_scale, seed, sampler, gpu_memory_preservation, start_latent=None, end_latent=None, end_image_embeds=None, initial_samples=None, denoise_strength=1.0):
+                guidance_scale, seed, sampler, gpu_memory_preservation, start_latent=None, end_latent=None, end_image_embeds=None, embed_interpolation="linear", start_embed_strength=1.0, initial_samples=None, denoise_strength=1.0):
         total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
         total_latent_sections = int(max(round(total_latent_sections), 1))
         print("total_latent_sections: ", total_latent_sections)
@@ -326,13 +328,13 @@ class FramePackSampler:
         print("start_latent", start_latent.shape)
         B, C, T, H, W = start_latent.shape
 
-        image_encoder_last_hidden_state = image_embeds["last_hidden_state"].to(base_dtype).to(device)
+        start_image_encoder_last_hidden_state = image_embeds["last_hidden_state"].to(base_dtype).to(device)
 
         if has_end_image:
             assert end_image_embeds is not None
             end_image_encoder_last_hidden_state = end_image_embeds["last_hidden_state"].to(base_dtype).to(device)
-            # Combine both image embeddings or use a weighted approach
-            image_encoder_last_hidden_state = (image_encoder_last_hidden_state + end_image_encoder_last_hidden_state) / 2
+        else:
+            end_image_encoder_last_hidden_state = torch.zeros_like(start_image_encoder_last_hidden_state)
 
         llama_vec = positive[0][0].to(base_dtype).to(device)
         clip_l_pooler = positive[0][1]["pooled_output"].to(base_dtype).to(device)
@@ -380,12 +382,19 @@ class FramePackSampler:
             # use `latent_paddings = list(reversed(range(total_latent_sections)))` to compare
             latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
             latent_paddings_list = latent_paddings.copy()
-            
-        for latent_padding in latent_paddings:
+
+        for i, latent_padding in enumerate(latent_paddings):
             print(f"latent_padding: {latent_padding}")
             is_last_section = latent_padding == 0
             is_first_section = latent_padding == latent_paddings[0]
             latent_padding_size = latent_padding * latent_window_size
+
+            if embed_interpolation == "linear":
+                frac = 1 - i / (total_latent_sections - 1) # going backwards
+            else:
+                frac = start_embed_strength if has_end_image else 1.0
+
+            image_encoder_last_hidden_state = start_image_encoder_last_hidden_state * frac + (1 - frac) * end_image_encoder_last_hidden_state
 
             print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}, is_first_section = {is_first_section}')
 
