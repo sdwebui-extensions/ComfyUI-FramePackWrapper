@@ -205,6 +205,7 @@ class LoadFramePackModel:
 
             "base_precision": (["fp32", "bf16", "fp16"], {"default": "bf16"}),
             "quantization": (['disabled', 'fp8_e4m3fn', 'fp8_e4m3fn_fast', 'fp8_e5m2'], {"default": 'disabled', "tooltip": "optional quantization method"}),
+            "load_device": (["main_device", "offload_device"], {"default": "cuda", "tooltip": "Initialize the model on the main device or offload device"}),
             },
             "optional": {
                 "attention_mode": ([
@@ -223,12 +224,16 @@ class LoadFramePackModel:
     CATEGORY = "FramePackWrapper"
 
     def loadmodel(self, model, base_precision, quantization,
-                  compile_args=None, attention_mode="sdpa", lora=None):
+                  compile_args=None, attention_mode="sdpa", lora=None, load_device="main_device"):
         
         base_dtype = {"fp8_e4m3fn": torch.float8_e4m3fn, "fp8_e4m3fn_fast": torch.float8_e4m3fn, "bf16": torch.bfloat16, "fp16": torch.float16, "fp16_fast": torch.float16, "fp32": torch.float32}[base_precision]
 
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
+        if load_device == "main_device":
+            transformer_load_device = device
+        else:
+            transformer_load_device = offload_device
 
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model)
         model_config_path = os.path.join(script_directory, "transformer_config.json")
@@ -238,7 +243,7 @@ class LoadFramePackModel:
         sd = load_torch_file(model_path, device=offload_device, safe_load=True)
         
         with init_empty_weights():
-            transformer = HunyuanVideoTransformer3DModel(**config)
+            transformer = HunyuanVideoTransformer3DModel(**config, attention_mode=attention_mode)
         
         params_to_keep = {"norm", "bias", "time_in", "vector_in", "guidance_in", "txt_in", "img_in"}
         if lora is not None:
@@ -253,12 +258,12 @@ class LoadFramePackModel:
         print("Using accelerate to load and assign model weights to device...")
         param_count = sum(1 for _ in transformer.named_parameters())
         for name, param in tqdm(transformer.named_parameters(), 
-                desc=f"Loading transformer parameters to {offload_device}", 
+                desc=f"Loading transformer parameters to {transformer_load_device}", 
                 total=param_count,
                 leave=True):
             dtype_to_use = base_dtype if any(keyword in name for keyword in params_to_keep) else dtype
    
-            set_module_tensor_to_device(transformer, name, device=offload_device, dtype=dtype_to_use, value=sd[name])
+            set_module_tensor_to_device(transformer, name, device=transformer_load_device, dtype=dtype_to_use, value=sd[name])
 
 
         if lora is not None:
@@ -472,7 +477,10 @@ class FramePackSampler:
             latent_padding_size = latent_padding * latent_window_size
 
             if embed_interpolation == "linear":
-                frac = 1 - i / (total_latent_sections - 1) # going backwards
+                if total_latent_sections <= 1:
+                    frac = 1.0  # Handle case with only one section
+                else:
+                    frac = 1 - i / (total_latent_sections - 1)  # going backwards
             else:
                 frac = start_embed_strength if has_end_image else 1.0
 
