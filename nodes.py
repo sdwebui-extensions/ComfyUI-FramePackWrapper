@@ -378,7 +378,7 @@ class FramePackSampler:
                 "start_latent": ("LATENT", {"tooltip": "init Latents to use for image2video"} ),
                 "end_latent": ("LATENT", {"tooltip": "end Latents to use for image2video"} ),
                 "end_image_embeds": ("CLIP_VISION_OUTPUT", {"tooltip": "end Image's clip embeds"} ),
-                "embed_interpolation": (["weighted_average", "linear"], {"default": 'linear', "tooltip": "Image embedding interpolation type. If linear, will smoothly interpolate with time, else it'll be weighted average with the specified weight."}),
+                "embed_interpolation": (["disabled", "weighted_average", "linear"], {"default": 'disabled', "tooltip": "Image embedding interpolation type. If linear, will smoothly interpolate with time, else it'll be weighted average with the specified weight."}),
                 "start_embed_strength": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Weighted average constant for image embed interpolation. If end image is not set, the embed's strength won't be affected"}),
                 "initial_samples": ("LATENT", {"tooltip": "init Latents to use for video2video"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -476,15 +476,18 @@ class FramePackSampler:
             is_first_section = latent_padding == latent_paddings[0]
             latent_padding_size = latent_padding * latent_window_size
 
-            if embed_interpolation == "linear":
-                if total_latent_sections <= 1:
-                    frac = 1.0  # Handle case with only one section
+            if embed_interpolation != "disabled":
+                if embed_interpolation == "linear":
+                    if total_latent_sections <= 1:
+                        frac = 1.0  # Handle case with only one section
+                    else:
+                        frac = 1 - i / (total_latent_sections - 1)  # going backwards
                 else:
-                    frac = 1 - i / (total_latent_sections - 1)  # going backwards
-            else:
-                frac = start_embed_strength if has_end_image else 1.0
+                    frac = start_embed_strength if has_end_image else 1.0
 
-            image_encoder_last_hidden_state = start_image_encoder_last_hidden_state * frac + (1 - frac) * end_image_encoder_last_hidden_state
+                image_encoder_last_hidden_state = start_image_encoder_last_hidden_state * frac + (1 - frac) * end_image_encoder_last_hidden_state
+            else:
+                image_encoder_last_hidden_state = start_image_encoder_last_hidden_state
 
             print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}, is_first_section = {is_first_section}')
 
