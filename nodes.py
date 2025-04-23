@@ -379,7 +379,7 @@ class FramePackSampler:
                 "end_latent": ("LATENT", {"tooltip": "end Latents to use for image2video"} ),
                 "end_image_embeds": ("CLIP_VISION_OUTPUT", {"tooltip": "end Image's clip embeds"} ),
                 "embed_interpolation": (["disabled", "weighted_average", "linear"], {"default": 'disabled', "tooltip": "Image embedding interpolation type. If linear, will smoothly interpolate with time, else it'll be weighted average with the specified weight."}),
-                "start_embed_strength": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Weighted average constant for image embed interpolation. If end image is not set, the embed's strength won't be affected"}),
+                "start_embed_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Weighted average constant for image embed interpolation. If end image is not set, the embed's strength won't be affected"}),
                 "initial_samples": ("LATENT", {"tooltip": "init Latents to use for video2video"} ),
                 "denoise_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
@@ -487,7 +487,7 @@ class FramePackSampler:
 
                 image_encoder_last_hidden_state = start_image_encoder_last_hidden_state * frac + (1 - frac) * end_image_encoder_last_hidden_state
             else:
-                image_encoder_last_hidden_state = start_image_encoder_last_hidden_state
+                image_encoder_last_hidden_state = start_image_encoder_last_hidden_state * start_embed_strength
 
             print(f'latent_padding_size = {latent_padding_size}, is_last_section = {is_last_section}, is_first_section = {is_first_section}')
 
