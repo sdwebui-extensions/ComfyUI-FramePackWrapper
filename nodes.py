@@ -197,7 +197,7 @@ class LoadFramePackModel:
         sd = load_torch_file(model_path, device=offload_device, safe_load=True)
         
         with init_empty_weights():
-            transformer = HunyuanVideoTransformer3DModelPacked(**config)
+            transformer = HunyuanVideoTransformer3DModelPacked(**config, attention_mode=attention_mode)
 
         params_to_keep = {"norm", "bias", "time_in", "vector_in", "guidance_in", "txt_in", "img_in"}
         if quantization == "fp8_e4m3fn" or quantization == "fp8_e4m3fn_fast" or quantization == "fp8_scaled":
@@ -390,7 +390,10 @@ class FramePackSampler:
             latent_padding_size = latent_padding * latent_window_size
 
             if embed_interpolation == "linear":
-                frac = 1 - i / (total_latent_sections - 1) # going backwards
+                if total_latent_sections <= 1:
+                    frac = 1.0  # Handle case with only one section
+                else:
+                    frac = 1 - i / (total_latent_sections - 1)  # going backwards
             else:
                 frac = start_embed_strength if has_end_image else 1.0
 
