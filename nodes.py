@@ -257,7 +257,7 @@ class LoadFramePackModel:
 
         print("Using accelerate to load and assign model weights to device...")
         param_count = sum(1 for _ in transformer.named_parameters())
-        for name, param in tqdm(transformer.named_parameters(), 
+        for name, param in tqdm(transformer.named_parameters(),
                 desc=f"Loading transformer parameters to {transformer_load_device}", 
                 total=param_count,
                 leave=True):
@@ -273,10 +273,19 @@ class LoadFramePackModel:
             for l in lora:
                 fuse = True if l["fuse_lora"] else False
                 lora_sd = load_torch_file(l["path"])
-                lora_sd = _convert_hunyuan_video_lora_to_diffusers(lora_sd)
+                
+                
+                if "lora_unet_single_transformer_blocks_0_attn_to_k.lora_up.weight" in lora_sd:
+                    from .utils import convert_to_diffusers
+                    lora_sd = convert_to_diffusers("lora_unet_", lora_sd)
+                
+                if not "transformer.single_transformer_blocks.0.attn_to.k.lora_A.weight" in lora_sd:
+                    log.info(f"Converting LoRA weights from {l['path']} to diffusers format...")
+                    lora_sd = _convert_hunyuan_video_lora_to_diffusers(lora_sd)
+
                 lora_rank = None            
                 for key, val in lora_sd.items():
-                    if "lora_B" in key:
+                    if "lora_B" in key or "lora_up" in key:
                         lora_rank = val.shape[1]
                         break
                 if lora_rank is not None:
@@ -504,7 +513,7 @@ class FramePackSampler:
                 clean_latents_post = end_latent.to(history_latents)
                 clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
 
-            #vid2vid
+            #vid2vid WIP
             
             if initial_samples is not None:
                 total_length = initial_samples.shape[2]
