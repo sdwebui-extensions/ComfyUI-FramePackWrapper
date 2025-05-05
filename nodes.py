@@ -436,7 +436,7 @@ class FramePackSampler:
         clip_l_pooler = positive[0][1]["pooled_output"].to(base_dtype).to(device)
 
         if not math.isclose(cfg, 1.0):
-            llama_vec_n = negative[0][0].to(base_dtype)
+            llama_vec_n = negative[0][0].to(base_dtype).to(device)
             clip_l_pooler_n = negative[0][1]["pooled_output"].to(base_dtype).to(device)
         else:
             llama_vec_n = torch.zeros_like(llama_vec, device=device)
